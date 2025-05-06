@@ -1,46 +1,40 @@
 %% Preapare weather dataset (lon x lat x year xseason x day of season)
 clear;
 clc;
+
 % download data from: https://drive.google.com/file/d/1-FTJFXhTOpQQhfgTgq6s3mMHo4nKYI1O/view?usp=sharing
 data=ncread('df_2004_2021.nc', 'TMAX');
-startDate = datetime(2004, 11, 16);
-endDate = datetime(2020, 11, 15);
+allDates = datetime(2004, 11, 16): datetime(2020, 11, 15);
+
+startDate = datetime(2005, 01, 01);
+endDate = datetime(2019, 12, 31);
+
+sel_idx = (allDates >= startDate) & (allDates<=endDate);
+selDates = allDates(sel_idx);
+selData = data(:,:, sel_idx);
+
 lons = linspace(4.0, 50.5, 94)';
 lats = linspace(30.0, 54.5, 50)';
 
-[reshaped, years, defSeasons, daysCount] = seasonalReshapefunc(data, startDate, endDate);
+[reshaped, years, defSeasons, daysCount] = seasonalReshapefunc(selData, startDate, endDate);
 
-clear data
+%clear data
 
-%% Fill missing entries with kNN
+%% Fill missing entries with moving avg.
+mask = isnan(reshaped);
+dim = 5; % dim. along which to compute moving AVEG. 
+ma = movmean(reshaped, [5 0], dim, 'omitnan');
 filledData = reshaped;
-dims = ndims(filledData);
-
-% Iterate over each dimension
-for dim = 1:dims
-    filledData = fillmissing(filledData, 'nearest', dim);
-end
-
-% After one pass, some NaNs might still remain if they were isolated.
-% Repeat the process until all NaNs are filled or a maximum number of iterations is reached.
-maxIterations = 5;
-iteration = 1;
-while any(isnan(filledData(:))) && iteration <= maxIterations
-    for dim = 1:dims
-        filledData = fillmissing(filledData, 'nearest', dim);
-    end
-    iteration = iteration + 1;
-end
+filledData(mask) = ma(mask);
 
 % If there are still NaNs, issue a warning
 if any(isnan(filledData(:)))
-    warning('Some NaN values could not be filled after %d iterations.', maxIterations);
+    warning('Some NaN values could not be filled.');
 end
 
-
+%%{
 %% save data
-% Define file name
-outFile = 'seasonalDataOrd5.nc';
+outFile = 'SeasonalData.nc';
 timeVec = startDate:endDate;
 seasonNames = {'DJF', 'MAM', 'JJA', 'SON'};
 
@@ -77,7 +71,7 @@ ncwriteatt(outFile, 'season', 'description', '1=DJF,2=MAM,3=JJA,4=SON');
 ncwriteatt(outFile, 'day',    'description', 'Day index within season');
 ncwriteatt(outFile, 'TMAX',   'description', 'Seasonally reshaped TMAX data');
 
-
+%}
 %% Functions
 function [reshaped, years, defSeasons, daysCount] = seasonalReshapefunc(data, startDate, endDate)
 % SEASONALRESHAPE   Time-aware seasonal reshape 
@@ -100,9 +94,9 @@ function [reshaped, years, defSeasons, daysCount] = seasonalReshapefunc(data, st
     [nLon, nLat, tLen] = size(data);
     assert(tLen == nTime, 'Third dimension of data must match date range length');
 
-    % Identify full calendar years
+    % Identify calendar years
     allYears = unique(year(timeVec));
-    years = allYears(allYears > year(startDate) & allYears < year(endDate));
+    years = allYears(allYears >= year(startDate) & allYears <= year(endDate));
     nYears = numel(years);
 
     %% 2. Define seasons
